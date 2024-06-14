@@ -1,0 +1,508 @@
+---
+title: "SEO2"
+author: "Irene Bonache"
+date: "2024-04-03"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, eval=FALSE}
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("SpatialExperiment")
+```
+
+```{r}
+library(SpatialExperiment)
+library(STexampleData)
+library(ggspavis)
+library(ggplot2)
+library(scater)
+library(scran)
+library(pheatmap)
+library(nnSVG)
+library(scuttle)
+library(here)
+library(DropletUtils)
+#library(SPARK)
+#library(spatialDE)
+library(SingleCellExperiment)
+library(cluster)
+library(factoextra)
+```
+
+```{r}
+dir <- getwd()
+sample_ids <- c("sample1", "sample2", "sample3", "sample4", "sample5", "sample6")
+samples <- file.path(dir, sample_ids, "outs")
+```
+
+# Análisis.
+
+## Muestra 1. 
+
+```{r}
+spe1 <- read10xVisium(samples[1], sample_ids[1], type = "sparse", data = "filtered", images = "lowres", load = FALSE)
+```
+
+```{r}
+# QUALITY CONTROL (QC)
+
+# subset to keep only spots over tissue
+spe1 <- spe1[, colData(spe1)$in_tissue == 1]
+# identify mitochondrial genes
+is_mito <- grepl("(^MT-)|(^mt-)", rowData(spe1)$gene_name)
+is_mito # vemos que no hay genes mitocondriales 
+
+# calculate per-spot QC metrics
+spe1 <- addPerCellQC(spe1, subsets = list(mito = is_mito))
+# select QC thresholds
+hist(colData(spe1)$sum, breaks = 100)
+
+
+qc_lib_size <- colData(spe1)$sum < 2000
+colData(spe1)$qc_lib_size <- qc_lib_size
+# check spatial pattern of discarded spots
+plotQC(spe1, type = "spots", discard = "qc_lib_size")
+
+hist(colData(spe1)$detected, breaks = 100)
+qc_detected <- colData(spe1)$detected < 1000
+colData(spe1)$qc_detected <- qc_detected
+# check spatial pattern of discarded spots
+plotQC(spe1, type = "spots", discard = "qc_detected")
+
+
+# number of discarded spots for each metric
+apply(cbind(qc_lib_size, qc_detected), 2, sum)
+# combined set of discarded spots
+discard <- qc_lib_size | qc_detected
+table(discard)
+# store in object
+colData(spe1)$discard <- discard
+# check spatial pattern of combined set of discarded spots
+plotQC(spe1, type = "spots", 
+       discard = "discard")
+```
+
+```{r}
+# Crear el histograma
+ggplot(as.data.frame(colData(spe1)), aes(x = colData(spe1)$sum)) + 
+  geom_histogram(binwidth = 700, fill = "red", color = "black", alpha = 0.7) +
+  geom_vline(xintercept = 2000, linetype = "dashed", color = "black", size = 1) +
+  labs(title = "",
+       x = "",
+       y = "") +
+  theme_minimal() 
+
+
+# Crear el histograma
+ggplot(as.data.frame(colData(spe1)), aes(x = colData(spe1)$detected)) + 
+  geom_histogram(binwidth = 150, fill = "red", color = "black", alpha = 0.7) +
+  geom_vline(xintercept = 1000, linetype = "dashed", color = "black", size = 1) +
+  labs(title = "",
+       x = "",
+       y = "") +
+  theme_minimal() 
+```
+
+
+```{r}
+# combined set of discarded spots
+discard <- qc_lib_size | qc_detected 
+colData(spe1)$discard <- discard
+# remove combined set of low-quality spots
+spe1 <- spe1[, !colData(spe1)$discard]
+dim(spe1)
+save(spe1, file = "./spe1.Rdata")
+```
+
+
+# Muestra 2
+
+```{r}
+spe2 <- read10xVisium(samples[2], sample_ids[2], type = "sparse", data = "filtered", images = "lowres", load = FALSE)
+```
+
+```{r}
+# QUALITY CONTROL (QC)
+
+# subset to keep only spots over tissue
+spe2 <- spe2[, colData(spe2)$in_tissue == 1]
+# identify mitochondrial genes
+is_mito <- grepl("(^MT-)|(^mt-)", rowData(spe2)$gene_name)
+is_mito # vemos que no hay genes mitocondriales 
+
+# calculate per-spot QC metrics
+spe2 <- addPerCellQC(spe2, subsets = list(mito = is_mito))
+# select QC thresholds
+hist(colData(spe2)$sum, breaks = 100)
+qc_lib_size <- colData(spe2)$sum < 3000
+colData(spe2)$qc_lib_size <- qc_lib_size
+# check spatial pattern of discarded spots
+plotQC(spe2, type = "spots", discard = "qc_lib_size")
+
+hist(colData(spe2)$detected, breaks = 100)
+qc_detected <- colData(spe2)$detected < 1500
+colData(spe2)$qc_detected <- qc_detected
+# check spatial pattern of discarded spots
+plotQC(spe2, type = "spots", discard = "qc_detected")
+```
+
+```{r}
+# Crear el histograma
+ggplot(as.data.frame(colData(spe2)), aes(x = colData(spe2)$sum)) + 
+  geom_histogram(binwidth = 700, fill = "red", color = "black", alpha = 0.7) +
+  geom_vline(xintercept = 3000, linetype = "dashed", color = "black", size = 1) +
+  labs(title = "",
+       x = "",
+       y = "") +
+  theme_minimal() 
+
+
+# Crear el histograma
+ggplot(as.data.frame(colData(spe2)), aes(x = colData(spe2)$detected)) + 
+  geom_histogram(binwidth = 150, fill = "red", color = "black", alpha = 0.7) +
+  geom_vline(xintercept = 1500, linetype = "dashed", color = "black", size = 1) +
+  labs(title = "",
+       x = "",
+       y = "") +
+  theme_minimal() 
+```
+
+```{r}
+# number of discarded spots for each metric
+apply(cbind(qc_lib_size, qc_detected), 2, sum)
+# combined set of discarded spots
+discard <- qc_lib_size | qc_detected
+table(discard)
+# store in object
+colData(spe2)$discard <- discard
+# check spatial pattern of combined set of discarded spots
+plotQC(spe2, type = "spots", 
+       discard = "discard")
+# combined set of discarded spots
+discard <- qc_lib_size | qc_detected 
+colData(spe2)$discard <- discard
+# remove combined set of low-quality spots
+spe2 <- spe2[, !colData(spe2)$discard]
+dim(spe2)
+save(spe2, file = "./spe2.Rdata")
+```
+
+
+# Muestra 3
+
+```{r}
+spe3 <- read10xVisium(samples[3], sample_ids[3], type = "sparse", data = "filtered", images = "lowres", load = FALSE)
+```
+
+```{r, eval=FALSE}
+# subset to keep only spots over tissue
+spe3 <- spe3[, colData(spe3)$in_tissue == 1]
+# identify mitochondrial genes
+is_mito <- grepl("(^MT-)|(^mt-)", rowData(spe3)$gene_name)
+is_mito # vemos que no hay genes mitocondriales 
+
+# calculate per-spot QC metrics
+spe3 <- addPerCellQC(spe3, subsets = list(mito = is_mito))
+# select QC thresholds
+hist(colData(spe3)$sum, breaks = 100)
+qc_lib_size <- colData(spe3)$sum < 150
+colData(spe3)$qc_lib_size <- qc_lib_size
+# check spatial pattern of discarded spots
+plotQC(spe3, type = "spots", discard = "qc_lib_size")
+
+hist(colData(spe3)$detected, breaks = 100)
+qc_detected <- colData(spe3)$detected < 110
+colData(spe3)$qc_detected <- qc_detected
+# check spatial pattern of discarded spots
+plotQC(spe3, type = "spots", discard = "qc_detected")
+```
+
+
+```{r}
+# Crear el histograma
+ggplot(as.data.frame(colData(spe3)), aes(x = colData(spe3)$sum)) + 
+  geom_histogram(binwidth = 700, fill = "red", color = "black", alpha = 0.7) +
+  geom_vline(xintercept = 150, linetype = "dashed", color = "black", size = 1) +
+  labs(title = "",
+       x = "",
+       y = "") +
+  theme_minimal() 
+
+
+# Crear el histograma
+ggplot(as.data.frame(colData(spe3)), aes(x = colData(spe3)$detected)) + 
+  geom_histogram(binwidth = 150, fill = "red", color = "black", alpha = 0.7) +
+  geom_vline(xintercept = 110, linetype = "dashed", color = "black", size = 1) +
+  labs(title = "",
+       x = "",
+       y = "") +
+  theme_minimal() 
+```
+
+```{r}
+# number of discarded spots for each metric
+apply(cbind(qc_detected), 2, sum)
+# combined set of discarded spots
+discard <- qc_detected
+table(discard)
+# store in object
+colData(spe3)$discard <- discard
+# check spatial pattern of combined set of discarded spots
+plotQC(spe3, type = "spots", 
+       discard = "discard")
+
+# combined set of discarded spots
+discard <- qc_detected 
+colData(spe3)$discard <- discard
+# remove combined set of low-quality spots
+spe3 <- spe3[, !colData(spe3)$discard]
+dim(spe3)
+save(spe3, file = "./spe3.Rdata")
+```
+
+
+# Muestra 4
+
+```{r}
+spe4 <- read10xVisium(samples[4], sample_ids[4], type = "sparse", data = "filtered", images = "lowres", load = FALSE)
+```
+
+```{r}
+# QUALITY CONTROL (QC)
+
+# subset to keep only spots over tissue
+spe4 <- spe4[, colData(spe4)$in_tissue == 1]
+# identify mitochondrial genes
+is_mito <- grepl("(^MT-)|(^mt-)", rowData(spe4)$gene_name)
+is_mito # vemos que no hay genes mitocondriales 
+
+# calculate per-spot QC metrics
+spe4 <- addPerCellQC(spe4, subsets = list(mito = is_mito))
+# select QC thresholds
+hist(colData(spe4)$sum, breaks = 100)
+qc_lib_size <- colData(spe4)$sum < 2000
+colData(spe4)$qc_lib_size <- qc_lib_size
+# check spatial pattern of discarded spots
+plotQC(spe4, type = "spots", discard = "qc_lib_size")
+
+hist(colData(spe4)$detected, breaks = 100)
+qc_detected <- colData(spe4)$detected < 1200
+colData(spe4)$qc_detected <- qc_detected
+# check spatial pattern of discarded spots
+plotQC(spe4, type = "spots", discard = "qc_detected")
+```
+
+```{r}
+# Crear el histograma
+ggplot(as.data.frame(colData(spe4)), aes(x = colData(spe4)$sum)) + 
+  geom_histogram(binwidth = 700, fill = "red", color = "black", alpha = 0.7) +
+  geom_vline(xintercept = 2000, linetype = "dashed", color = "black", size = 1) +
+  labs(title = "",
+       x = "",
+       y = "") +
+  theme_minimal() 
+
+
+# Crear el histograma
+ggplot(as.data.frame(colData(spe4)), aes(x = colData(spe4)$detected)) + 
+  geom_histogram(binwidth = 150, fill = "red", color = "black", alpha = 0.7) +
+  geom_vline(xintercept = 1200, linetype = "dashed", color = "black", size = 1) +
+  labs(title = "",
+       x = "",
+       y = "") +
+  theme_minimal() 
+```
+
+```{r}
+# number of discarded spots for each metric
+apply(cbind(qc_lib_size, qc_detected), 2, sum)
+# combined set of discarded spots
+discard <- qc_lib_size | qc_detected
+table(discard)
+# store in object
+colData(spe4)$discard <- discard
+# check spatial pattern of combined set of discarded spots
+plotQC(spe4, type = "spots", discard = "discard")
+
+# combined set of discarded spots
+discard <- qc_lib_size | qc_detected 
+colData(spe4)$discard <- discard
+# remove combined set of low-quality spots
+spe4 <- spe4[, !colData(spe4)$discard]
+dim(spe4)
+save(spe4, file = "./spe4.Rdata")
+```
+
+
+# Muestra 5
+
+```{r}
+spe5 <- read10xVisium(samples[5], sample_ids[5], type = "sparse", data = "filtered", images = "lowres", load = FALSE)
+```
+
+```{r}
+# QUALITY CONTROL (QC)
+
+# subset to keep only spots over tissue
+spe5 <- spe5[, colData(spe5)$in_tissue == 1]
+# identify mitochondrial genes
+is_mito <- grepl("(^MT-)|(^mt-)", rowData(spe5)$gene_name)
+is_mito # vemos que no hay genes mitocondriales 
+
+# calculate per-spot QC metrics
+spe5 <- addPerCellQC(spe5, subsets = list(mito = is_mito))
+# select QC thresholds
+hist(colData(spe5)$sum, breaks = 200)
+qc_lib_size <- colData(spe5)$sum < 85
+colData(spe5)$qc_lib_size <- qc_lib_size
+# check spatial pattern of discarded spots
+plotQC(spe5, type = "spots", discard = "qc_lib_size")
+
+hist(colData(spe5)$detected, breaks = 100)
+qc_detected <- colData(spe5)$detected < 75
+colData(spe5)$qc_detected <- qc_detected
+# check spatial pattern of discarded spots
+plotQC(spe5, type = "spots", discard = "qc_detected")
+```
+
+```{r}
+# Crear el histograma
+ggplot(as.data.frame(colData(spe5)), aes(x = colData(spe5)$sum)) + 
+  geom_histogram(binwidth = 700, fill = "red", color = "black", alpha = 0.7) +
+  geom_vline(xintercept = 85, linetype = "dashed", color = "black", size = 1) +
+  labs(title = "",
+       x = "",
+       y = "") +
+  theme_minimal() 
+
+
+# Crear el histograma
+ggplot(as.data.frame(colData(spe5)), aes(x = colData(spe5)$detected)) + 
+  geom_histogram(binwidth = 150, fill = "red", color = "black", alpha = 0.7) +
+  geom_vline(xintercept = 75, linetype = "dashed", color = "black", size = 1) +
+  labs(title = "",
+       x = "",
+       y = "") +
+  theme_minimal() 
+```
+
+```{r}
+# number of discarded spots for each metric
+apply(cbind(qc_lib_size, qc_detected), 2, sum)
+# combined set of discarded spots
+discard <- qc_lib_size | qc_detected
+table(discard)
+# store in object
+colData(spe5)$discard <- discard
+# check spatial pattern of combined set of discarded spots
+plotQC(spe5, type = "spots", discard = "discard")
+
+# combined set of discarded spots
+discard <- qc_lib_size | qc_detected 
+colData(spe5)$discard <- discard
+# remove combined set of low-quality spots
+spe5 <- spe5[, !colData(spe5)$discard]
+dim(spe5)
+save(spe5, file = "./spe5.Rdata")
+```
+
+# Muestra 6
+
+```{r}
+spe6 <- read10xVisium(samples[6], sample_ids[6], type = "sparse", data = "filtered", images = "lowres", load = FALSE)
+```
+
+```{r}
+# QUALITY CONTROL (QC)
+
+# subset to keep only spots over tissue
+spe6 <- spe6[, colData(spe6)$in_tissue == 1]
+# identify mitochondrial genes
+is_mito <- grepl("(^MT-)|(^mt-)", rowData(spe6)$gene_name)
+is_mito # vemos que no hay genes mitocondriales 
+
+# calculate per-spot QC metrics
+spe6 <- addPerCellQC(spe6, subsets = list(mito = is_mito))
+# select QC thresholds
+hist(colData(spe6)$sum, breaks = 100)
+qc_lib_size <- colData(spe6)$sum < 200
+colData(spe6)$qc_lib_size <- qc_lib_size
+# check spatial pattern of discarded spots
+plotQC(spe6, type = "spots", discard = "qc_lib_size")
+
+hist(colData(spe6)$detected, breaks = 100)
+qc_detected <- colData(spe6)$detected < 200
+colData(spe6)$qc_detected <- qc_detected
+# check spatial pattern of discarded spots
+plotQC(spe6, type = "spots", discard = "qc_detected")
+```
+
+
+```{r}
+# Crear el histograma
+ggplot(as.data.frame(colData(spe6)), aes(x = colData(spe6)$sum)) + 
+  geom_histogram(binwidth = 700, fill = "red", color = "black", alpha = 0.7) +
+  geom_vline(xintercept = 200, linetype = "dashed", color = "black", size = 1) +
+  labs(title = "",
+       x = "",
+       y = "") +
+  theme_minimal() 
+
+
+# Crear el histograma
+ggplot(as.data.frame(colData(spe6)), aes(x = colData(spe6)$detected)) + 
+  geom_histogram(binwidth = 150, fill = "red", color = "black", alpha = 0.7) +
+  geom_vline(xintercept = 200, linetype = "dashed", color = "black", size = 1) +
+  labs(title = "",
+       x = "",
+       y = "") +
+  theme_minimal() 
+```
+
+```{r}
+# number of discarded spots for each metric
+apply(cbind(qc_detected), 2, sum)
+# combined set of discarded spots
+discard <- qc_detected
+table(discard)
+# store in object
+colData(spe6)$discard <- discard
+# check spatial pattern of combined set of discarded spots
+plotQC(spe6, type = "spots", discard = "discard")
+
+# combined set of discarded spots
+discard <- qc_lib_size | qc_detected 
+colData(spe6)$discard <- discard
+# remove combined set of low-quality spots
+spe6 <- spe6[, !colData(spe6)$discard]
+dim(spe6)
+save(spe6, file = "./spe6.Rdata")
+```
+
+
+
+
+## Todas las muestras.
+
+```{r}
+# Cargamos primero todas las muestras ya filtradas
+load('spe1.RData')
+load('spe2.RData')
+load('spe3.RData')
+load('spe4.RData')
+load('spe5.RData')
+load('spe6.RData')
+```
+
+```{r}
+#combinar todos los SpatialExperiment en uno solo 
+spe <- cbind(spe1, spe2, spe3, spe4, spe5, spe6)
+save(spe, file = "./spe.Rdata")
+```
+
