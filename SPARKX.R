@@ -12,13 +12,6 @@ library(DropletUtils)
 library(SPARK)
 library(SingleCellExperiment)
 
-#esta es mi matriz de conteo
-load('spe.RData')
-counts <- assay(spe)
-spat_info <- as.data.frame(spatialCoords(spe))
-colnames(spat_info) <- c('x', 'y') 
-colnames(counts) <- rownames(spat_info)
-
 #SPARK-X por muestra 
 
 #muestra 1
